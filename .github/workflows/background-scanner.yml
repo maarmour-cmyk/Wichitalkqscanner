@@ -2,50 +2,42 @@ name: Wichita LKQ V10.3 Background Scanner
 
 on:
   workflow_dispatch:
-    inputs:
-      query_budget:
-        description: 'Max new/stale eBay market searches this run (whole-yard backfill)'
-        required: false
-        default: '1500'
   schedule:
-    # Twice per day, 12 hours apart. GitHub cron uses UTC.
-    - cron: '17 1,13 * * *'
+    - cron: "17 1,13 * * *"
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 55
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - run: pip install -r requirements-background.txt
+      - name: Install requirements
+        run: pip install -r requirements-background.txt
 
-      - run: python background_scan.py
+      - name: Run Wichita scanner
+        run: python background_scan.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_MIN_PART_PROFIT: "150"
+          ALERT_MIN_DONOR_PROFIT: "400"
+          ALERT_MIN_DWMT: "65"
 
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
-          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          EBAY_FEE: "0.13"
+          EBAY_QUICK_SALE_PCT: "0.88"
 
-          ALERT_MIN_PART_PROFIT: '150'
-          ALERT_MIN_DONOR_PROFIT: '400'
-          ALERT_MIN_DWMT: '65'
-
-          EBAY_FEE: '0.13'
-          EBAY_QUICK_SALE_PCT: '0.88'
-
-          MARKET_CACHE_HOURS: '168'
-          MARKET_WORKERS: '8'
-          MAX_VIN_DECODES_PER_RUN: '2500'
-
-          MAX_MARKET_QUERIES_PER_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.query_budget || '1500' }}
+          MARKET_CACHE_HOURS: "168"
+          MARKET_WORKERS: "8"
+          MAX_VIN_DECODES_PER_RUN: "2500"
+          MAX_MARKET_QUERIES_PER_RUN: "1500" 
