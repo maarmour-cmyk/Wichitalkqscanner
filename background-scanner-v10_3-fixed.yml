@@ -1,0 +1,39 @@
+name: Wichita LKQ V10.3 Background Scanner
+
+"on":
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1,13 * * *"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requirements
+        run: pip install -r requirements-background.txt
+
+      - name: Run Wichita scanner
+        run: python background_scan.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          ALERT_MIN_PART_PROFIT: "150"
+          ALERT_MIN_DONOR_PROFIT: "400"
+          ALERT_MIN_DWMT: "65"
+          EBAY_FEE: "0.13"
+          EBAY_QUICK_SALE_PCT: "0.88"
+          MARKET_CACHE_HOURS: "168"
+          MARKET_WORKERS: "8"
+          MAX_VIN_DECODES_PER_RUN: "2500"
+          MAX_MARKET_QUERIES_PER_RUN: "1500"
