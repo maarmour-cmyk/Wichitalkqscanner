@@ -1,39 +1,191 @@
-name: Wichita LKQ V10.3 Background Scanner
+-- Wichita LKQ Scanner V10.4 car-first discovery upgrade
+-- Run once after V10.3. Safe to re-run.
 
-"on":
-  workflow_dispatch:
-  schedule:
-    - cron: "17 1,13 * * *"
+create extension if not exists pgcrypto;
 
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+create table if not exists public.scanner_discovery_families (
+  family_id text primary key,
+  year integer not null default 0,
+  make text not null default '',
+  model text not null default '',
+  trim_key text not null default '',
+  engine_key text not null default '',
+  engine_label text not null default '',
+  search_query text not null default '',
+  last_scanned timestamptz not null default now(),
+  status text not null default '',
+  listing_count integer not null default 0,
+  discovered_count integer not null default 0,
+  error text not null default ''
+);
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+create table if not exists public.scanner_discovered_parts (
+  id text primary key,
+  family_id text not null,
+  year integer not null default 0,
+  make text not null default '',
+  model text not null default '',
+  trim_key text not null default '',
+  engine_key text not null default '',
+  engine_label text not null default '',
+  part_name text not null default '',
+  part_key text not null default '',
+  fitment_rule text not null default '',
+  search_query text not null default '',
+  example_title text not null default '',
+  example_titles jsonb not null default '[]'::jsonb,
+  active_median numeric,
+  active_count integer not null default 0,
+  active_rank_score numeric,
+  sold_median numeric,
+  sold_count_90 integer not null default 0,
+  sold_count_all integer not null default 0,
+  sell_through_pct numeric,
+  days_to_sell numeric,
+  market_value numeric,
+  market_basis text not null default '',
+  lkq_cost numeric,
+  cost_basis text not null default '',
+  pull_minutes integer,
+  ship_estimate numeric,
+  expected_net numeric,
+  profit_per_hour numeric,
+  dwmt_score numeric,
+  confidence numeric,
+  fitment_status text not null default '',
+  fitment_reason text not null default '',
+  demand_confidence numeric,
+  first_seen timestamptz not null default now(),
+  last_seen timestamptz not null default now()
+);
 
-      - name: Install requirements
-        run: pip install -r requirements-background.txt
+create table if not exists public.scanner_discovered_recommendations (
+  id text primary key,
+  family_id text not null default '',
+  stock_number text not null default '',
+  car text not null default '',
+  yard_location text not null default '',
+  available_date text not null default '',
+  vin text not null default '',
+  trim text not null default '',
+  series text not null default '',
+  engine_label text not null default '',
+  part_name text not null default '',
+  part_key text not null default '',
+  lkq_cost numeric,
+  market_value numeric,
+  market_basis text not null default '',
+  active_count integer not null default 0,
+  sold_count_90 integer not null default 0,
+  sell_through_pct numeric,
+  expected_net numeric,
+  profit_per_hour numeric,
+  pull_minutes integer,
+  dwmt_score numeric,
+  confidence numeric,
+  fitment_status text not null default '',
+  fitment_reason text not null default '',
+  oem_part_number text not null default '',
+  discovery_source text not null default '',
+  updated_at timestamptz not null default now()
+);
 
-      - name: Run Wichita scanner
-        run: python background_scan.py
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
-          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-          ALERT_MIN_PART_PROFIT: "150"
-          ALERT_MIN_DONOR_PROFIT: "400"
-          ALERT_MIN_DWMT: "65"
-          EBAY_FEE: "0.13"
-          EBAY_QUICK_SALE_PCT: "0.88"
-          MARKET_CACHE_HOURS: "168"
-          MARKET_WORKERS: "8"
-          MAX_VIN_DECODES_PER_RUN: "2500"
-          MAX_MARKET_QUERIES_PER_RUN: "1500"
+create table if not exists public.scanner_donor_verifications (
+  id text primary key,
+  stock_number text not null default '',
+  vin text not null default '',
+  part_key text not null default '',
+  part_name text not null default '',
+  status text not null default 'unknown',
+  oem_part_number text not null default '',
+  notes text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+alter table public.scanner_discovery_families enable row level security;
+alter table public.scanner_discovered_parts enable row level security;
+alter table public.scanner_discovered_recommendations enable row level security;
+alter table public.scanner_donor_verifications enable row level security;
+
+do $$ begin
+  create policy "anon read discovery families"
+  on public.scanner_discovery_families
+  for select to anon using (true);
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create policy "anon read discovered parts"
+  on public.scanner_discovered_parts
+  for select to anon using (true);
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create policy "anon read discovered recommendations"
+  on public.scanner_discovered_recommendations
+  for select to anon using (true);
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create policy "anon read donor verifications"
+  on public.scanner_donor_verifications
+  for select to anon using (true);
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create policy "anon insert donor verifications"
+  on public.scanner_donor_verifications
+  for insert to anon
+  with check (
+    stock_number <> ''
+    and status in ('present','absent','unknown')
+  );
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create policy "anon update donor verifications"
+  on public.scanner_donor_verifications
+  for update to anon
+  using (stock_number <> '')
+  with check (
+    stock_number <> ''
+    and status in ('present','absent','unknown')
+  );
+exception when duplicate_object then null;
+end $$;
+
+alter table public.scanner_runs
+  add column if not exists discovery_families_scanned integer not null default 0;
+
+alter table public.scanner_runs
+  add column if not exists discovery_parts_found integer not null default 0;
+
+alter table public.scanner_runs
+  add column if not exists discovery_recommendations integer not null default 0;
+
+alter table public.scanner_runs
+  add column if not exists discovery_calls integer not null default 0;
+
+create index if not exists scanner_discovery_families_scanned_idx
+  on public.scanner_discovery_families(last_scanned asc);
+
+create index if not exists scanner_discovered_parts_family_idx
+  on public.scanner_discovered_parts(family_id,dwmt_score desc,expected_net desc);
+
+create index if not exists scanner_discovered_parts_profit_idx
+  on public.scanner_discovered_parts(dwmt_score desc,expected_net desc);
+
+create index if not exists scanner_discovered_recs_stock_idx
+  on public.scanner_discovered_recommendations(stock_number,dwmt_score desc);
+
+create index if not exists scanner_discovered_recs_profit_idx
+  on public.scanner_discovered_recommendations(dwmt_score desc,expected_net desc);
+
+create index if not exists scanner_donor_verifications_stock_idx
+  on public.scanner_donor_verifications(stock_number,part_key);
+
+notify pgrst, 'reload schema';
